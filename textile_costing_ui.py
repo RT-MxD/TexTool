@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 
 # --- Configuration ---
-API_BASE_URL = "http://127.0.0.1:8000"  # Update this if your API runs elsewhere
+API_BASE_URL = "https://textool.onrender.com"  # Update this if your API runs elsewhere
 st.set_page_config(
     page_title="Textile Costing Calculator",
     page_icon="🧮",
