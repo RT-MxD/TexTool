@@ -67,16 +67,24 @@ with st.sidebar:
     
     global_params_defaults = defaults.get("global_params", {})
     
-    saree_cut = st.number_input("Saree Cut (K26)", value=float(global_params_defaults.get("saree_cut", 6.6)), step=0.1)
-    job_rate_k24 = st.number_input("Job Rate (K24)", value=float(global_params_defaults.get("job_rate_k24", 0.25)), step=0.01)
-    job_rate_m8 = st.number_input("Job Rate (M8)", value=float(global_params_defaults.get("job_rate_m8", 0.28)), step=0.01)
-    saree_cut_m7 = st.number_input("Saree Cut M7", value=float(global_params_defaults.get("saree_cut_m7", 6.2)), step=0.1)
-    total_card = st.number_input("Total Card (O8)", value=float(global_params_defaults.get("total_card", 19649.0)), step=100.0)
-    basic_rate = st.number_input("Basic Rate (A28)", value=float(global_params_defaults.get("basic_rate", 200.0)), step=10.0)
-    gst_percent = st.number_input("GST % (B28)", value=float(global_params_defaults.get("gst_percent", 18.0)), step=1.0)
-    pick = st.number_input("Pick (A24)", value=float(global_params_defaults.get("pick", 7.0)), step=0.1)
-    work = st.number_input("Work (B24)", value=float(global_params_defaults.get("work", 4.3)), step=0.1)
-    cut = st.number_input("Cut (C24)", value=float(global_params_defaults.get("cut", 6.3)), step=0.1)
+    def_saree_cut = float(global_params_defaults.get("saree_cut", 6.6))
+    saree_cut_in = st.number_input("Saree Cut (K26)", value=None, placeholder=str(def_saree_cut), step=0.1)
+    saree_cut = saree_cut_in if saree_cut_in is not None else def_saree_cut
+    def_job_k24 = float(global_params_defaults.get("job_rate_k24", 0.25))
+    job_rate_k24_in = st.number_input("Job Rate (K24)", value=None, placeholder=str(def_job_k24), step=0.01)
+    job_rate_k24 = job_rate_k24_in if job_rate_k24_in is not None else def_job_k24
+    def_job_m8 = float(global_params_defaults.get("job_rate_m8", 0.28))
+    job_rate_m8_in = st.number_input("Job Rate (M8)", value=None, placeholder=str(def_job_m8), step=0.01)
+    job_rate_m8 = job_rate_m8_in if job_rate_m8_in is not None else def_job_m8
+    def_saree_m7 = float(global_params_defaults.get("saree_cut_m7", 6.2))
+    saree_cut_m7_in = st.number_input("Saree Cut M7", value=None, placeholder=str(def_saree_m7), step=0.1)
+    saree_cut_m7 = saree_cut_m7_in if saree_cut_m7_in is not None else def_saree_m7
+    def_total_card = float(global_params_defaults.get("total_card", 19649.0))
+    total_card_in = st.number_input("Total Card (O8)", value=None, placeholder=str(def_total_card), step=100.0)
+    total_card = total_card_in if total_card_in is not None else def_total_card
+    def_divisor = float(global_params_defaults.get("divisor", 9000000.0))
+    divisor_in = st.number_input("Divisor for Ans Calculation", value=None, placeholder=str(def_divisor), step=100000.0)
+    divisor = divisor_in if divisor_in is not None else def_divisor
 
     global_params = {
         "saree_cut": saree_cut,
@@ -84,11 +92,7 @@ with st.sidebar:
         "job_rate_m8": job_rate_m8,
         "saree_cut_m7": saree_cut_m7,
         "total_card": total_card,
-        "basic_rate": basic_rate,
-        "gst_percent": gst_percent,
-        "pick": pick,
-        "work": work,
-        "cut": cut
+        "divisor": divisor,
     }
 
 # --- Main Area: Material Inputs ---
@@ -97,8 +101,15 @@ st.header("🧵 Material Inputs")
 default_materials = defaults.get("materials", [])
 materials_input = []
 
-# Create tabs for better organization if there are many materials, or expanders
-num_materials_to_show = st.slider("Number of Materials to calculate", min_value=1, max_value=7, value=len(default_materials))
+# Create pills for better organization to select number of materials
+num_options = list(range(1, 11))
+num_materials_to_show = st.pills(
+    "Number of Materials to calculate", 
+    options=num_options, 
+    default=len(default_materials) if len(default_materials) in num_options else 1
+)
+if not num_materials_to_show:
+    num_materials_to_show = len(default_materials) if len(default_materials) in num_options else 1
 
 # Using columns for material inputs
 cols = st.columns(3)
@@ -106,8 +117,9 @@ cols = st.columns(3)
 for i in range(num_materials_to_show):
     # Get default values for this index if available, else empty/default values
     mat_def = default_materials[i] if i < len(default_materials) else {
-        "material_name": f"Material {i+1}", 
-        "beam_tar": 0.0, 
+        "material_name": f"Material-{i+1}", 
+        "beam_tar": 0.0,
+        "peak": 0.0,
         "denier": 0.0, 
         "rate": 0.0, 
         "has_e_multiplier": True
@@ -116,16 +128,27 @@ for i in range(num_materials_to_show):
     col_idx = i % 3
     with cols[col_idx]:
         with st.container(border=True):
-            st.subheader(mat_def.get("material_name", f"Material {i+1}"))
+            st.subheader(mat_def.get("material_name", f"Material-{i+1}"))
             
             # Use columns inside the container for compact layout
             c1, c2 = st.columns(2)
             with c1:
-                name = st.text_input(f"Name", value=mat_def.get("material_name"), key=f"name_{i}")
-                beam_tar = st.number_input(f"Beam Tar", value=float(mat_def.get("beam_tar", 0)), step=10.0, key=f"bt_{i}")
+                def_name = mat_def.get("material_name")
+                name_in = st.text_input(f"Name", value="", placeholder=def_name, key=f"name_{i}")
+                name = name_in if name_in != "" else def_name
+                def_bt = float(mat_def.get("beam_tar", 0))
+                beam_tar_in = st.number_input(f"Beam Tar", value=None, placeholder=str(def_bt), step=10.0, key=f"bt_{i}")
+                beam_tar = beam_tar_in if beam_tar_in is not None else def_bt
+                def_peak = float(mat_def.get("peak", 0))
+                peak_in = st.number_input(f"Peak", value=None, placeholder=str(def_peak), step=10.0, key=f"peak_{i}")
+                peak = peak_in if peak_in is not None else def_peak
             with c2:
-                denier = st.number_input(f"Denier", value=float(mat_def.get("denier", 0)), step=10.0, key=f"den_{i}")
-                rate = st.number_input(f"Rate", value=float(mat_def.get("rate", 0)), step=10.0, key=f"rate_{i}")
+                def_den = float(mat_def.get("denier", 0))
+                denier_in = st.number_input(f"Denier", value=None, placeholder=str(def_den), step=10.0, key=f"den_{i}")
+                denier = denier_in if denier_in is not None else def_den
+                def_rate = float(mat_def.get("rate", 0))
+                rate_in = st.number_input(f"Rate", value=None, placeholder=str(def_rate), step=10.0, key=f"rate_{i}")
+                rate = rate_in if rate_in is not None else def_rate
             
             has_e_multi = st.checkbox(
                 "Has E Multiplier (4-param)", 
@@ -137,6 +160,7 @@ for i in range(num_materials_to_show):
             materials_input.append({
                 "material_name": name,
                 "beam_tar": beam_tar,
+                "peak": peak,
                 "denier": denier,
                 "rate": rate,
                 "has_e_multiplier": has_e_multi
@@ -156,11 +180,10 @@ if st.button("🚀 Calculate Cost", type="primary", use_container_width=True):
             st.header("📊 Results")
             
             # 1. Top Level Metrics
-            m1, m2, m3, m4 = st.columns(4)
+            m1, m2, m3 = st.columns(3)
             m1.metric("Final Cost (K27)", f"₹ {results.get('cost', 0):.2f}")
-            m2.metric("Total Yarn + Job (N11)", f"₹ {results.get('total_yarn_job', 0):.2f}")
-            m3.metric("Net Rate w/ GST (C28)", f"₹ {results.get('net_rate', 0):.2f}")
-            m4.metric("Total Job (N9)", f"₹ {results.get('total_job', 0):.2f}")
+            m2.metric("Total Job (L24)", f"₹ {results.get('total_job_alt', 0):.2f}")
+            m3.metric("Total Amt Yarn (M24)", f"₹ {results.get('total_amt_yarn', 0):.2f}")
             
             st.divider()
             
@@ -169,10 +192,11 @@ if st.button("🚀 Calculate Cost", type="primary", use_container_width=True):
             if "materials" in results:
                 df_materials = pd.DataFrame(results["materials"])
                 # Formatting columns for display
-                display_cols = ['material_name', 'beam_tar', 'denier', 'rate', 'ans', 'amt', 'yarn_weight', 'yarn_price']
+                display_cols = ['material_name', 'beam_tar', 'peak', 'denier', 'rate', 'ans', 'amt', 'yarn_weight', 'yarn_price']
                 st.dataframe(
                     df_materials[display_cols].style.format({
                         'beam_tar': "{:.2f}",
+                        'peak': "{:.2f}",
                         'denier': "{:.2f}",
                         'rate': "₹ {:.2f}",
                         'ans': "{:.4f}",
@@ -188,11 +212,15 @@ if st.button("🚀 Calculate Cost", type="primary", use_container_width=True):
             
             # 3. Secondary Metrics / Aggregations
             st.subheader("📈 Aggregated Totals")
-            a1, a2, a3, a4 = st.columns(4)
+            a1, a2, a3 = st.columns(3)
             a1.metric("Total Pick (H26)", f"{results.get('total_pick', 0):.2f}")
             a2.metric("Sum Amt (I21)", f"{results.get('sum_amt', 0):.2f}")
-            a3.metric("Total Amt Yarn (M24)", f"₹ {results.get('total_amt_yarn', 0):.2f}")
-            a4.metric("Work Ratio (B26)", f"{results.get('work_ratio', 0):.4f}")
+            a3.metric("Total Amt Yarn (N6)", f"₹ {results.get('n6', 0):.2f}")
+            
+            
+            b1, b2 = st.columns(2)
+            b1.metric("Total Job (N9)", f"₹ {results.get('total_job', 0):.2f}")
+            b2.metric("Total Yarn + Job (N11)", f"₹ {results.get('total_yarn_job', 0):.2f}")
             
             # Optional: Show execution trace
             with st.expander("🛠️ Workflow Execution Trace"):
