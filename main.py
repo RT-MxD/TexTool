@@ -32,22 +32,24 @@ from cal import (
 
 class MaterialInput(BaseModel):
     """Input for a single material."""
-    material_name: str = Field(..., description="Name of the material (e.g., 'Warp', '150 Lichi')")
+    material_name: str = Field(..., description="Name of the material (e.g., 'Warp', 'Material-2')")
     beam_tar: float = Field(..., description="Beam Tar value (Column B)")
-    denier: float = Field(..., description="Denier value (Column C)")
+    peak: float = Field(..., description="Peak value (Column C)")
+    denier: float = Field(..., description="Denier value (Column D)")
     rate: float = Field(..., description="Rate per unit (Column H)")
     has_e_multiplier: bool = Field(
         True,
-        description="False for Warp (3-param: B*C*D/9M), True for others (4-param: B*C*D*E/9M)"
+        description="False for Warp (3-param: B*C*D/divisor), True for others (4-param: B*C*D*E/divisor)"
     )
 
     class Config:
         json_schema_extra = {
             "example": {
-                "material_name": "150 Lichi",
-                "beam_tar": 140.0,
-                "denier": 70.0,
-                "rate": 252.0,
+                "material_name": "Material-2",
+                "beam_tar":0.0,
+                "peak": 0.0,
+                "denier": 0.0,
+                "rate": 0.0,
                 "has_e_multiplier": True,
             }
         }
@@ -55,16 +57,12 @@ class MaterialInput(BaseModel):
 
 class GlobalParams(BaseModel):
     """Global parameters for the calculation."""
-    saree_cut: float = Field(6.6, description="Saree Cut (K26)")
-    job_rate_k24: float = Field(0.25, description="Job Rate (K24)")
-    job_rate_m8: float = Field(0.28, description="Job Rate (M8)")
-    saree_cut_m7: float = Field(6.2, description="Saree Cut for job calc (M7)")
-    total_card: float = Field(19649.0, description="Total Card (O8)")
-    basic_rate: float = Field(200.0, description="Basic Rate (A28)")
-    gst_percent: float = Field(18.0, description="GST Percentage (B28)")
-    pick: float = Field(7.0, description="Pick (A24)")
-    work: float = Field(4.3, description="Work (B24)")
-    cut: float = Field(6.3, description="Cut (C24)")
+    saree_cut: float = Field(0.0, description="Saree Cut (K26)")
+    job_rate_k24: float = Field(0.0, description="Job Rate (K24)")
+    job_rate_m8: float = Field(0.0, description="Job Rate (M8)")
+    saree_cut_m7: float = Field(0.0, description="Saree Cut for job calc (M7)")
+    total_card: float = Field(0.0, description="Total Card (O8)")
+    divisor: float = Field(0.0, description="Divisor for Ans calculation")
 
 
 class CalculationRequest(BaseModel):
@@ -72,8 +70,8 @@ class CalculationRequest(BaseModel):
     materials: List[MaterialInput] = Field(
         ...,
         min_length=1,
-        max_length=7,
-        description="List of materials (1-7). Order: Warp, 150 Lichi, Shampen, Weft-3 to Weft-6"
+        max_length=10,
+        description="List of materials (1-10). First is Warp (fixed), rest are user-named"
     )
     global_params: GlobalParams = Field(
         default_factory=GlobalParams,
@@ -84,66 +82,100 @@ class CalculationRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "materials": [
-                    {"material_name": "Warp", "beam_tar": 110.0, "denier": 110.0, "rate": 325.0, "has_e_multiplier": False},
-                    {"material_name": "150 Lichi", "beam_tar": 140.0, "denier": 70.0, "rate": 252.0, "has_e_multiplier": True},
-                    {"material_name": "Shampen", "beam_tar": 280.0, "denier": 52.0, "rate": 300.0, "has_e_multiplier": True},
+                    {"material_name": "Warp", "beam_tar": 110.0, "peak": 110.0, "denier": 110.0, "rate": 325.0, "has_e_multiplier": False},
+                    {"material_name": "Material-2", "beam_tar": 140.0, "peak": 70.0, "denier": 70.0, "rate": 252.0, "has_e_multiplier": True},
+                    {"material_name": "Material-3", "beam_tar": 280.0, "peak": 52.0, "denier": 52.0, "rate": 300.0, "has_e_multiplier": True},
                 ],
                 "global_params": {
                     "saree_cut": 6.6,
                     "job_rate_k24": 0.25,
                     "job_rate_m8": 0.28,
                     "saree_cut_m7": 6.2,
+                    "divisor": 9000000.0,
                 }
             }
         }
 
 
 class QuickCalcRequest(BaseModel):
-    """Simplified request — just beam_tar, denier, rate for the 3 main materials."""
-    warp_beam_tar: float = Field(110.0, description="Warp Beam Tar (B3)")
-    warp_denier: float = Field(110.0, description="Warp Denier (C3)")
-    warp_rate: float = Field(325.0, description="Warp Rate (H3)")
+    """Simplified request — beam_tar, peak, denier, rate for 10 materials."""
+    warp_beam_tar: float = Field(110.0, description="Warp Beam Tar (B)")
+    warp_peak: float = Field(110.0, description="Warp Peak (C)")
+    warp_denier: float = Field(110.0, description="Warp Denier (D)")
+    warp_rate: float = Field(325.0, description="Warp Rate (H)")
 
-    lichi_beam_tar: float = Field(140.0, description="150 Lichi Beam Tar (B6)")
-    lichi_denier: float = Field(70.0, description="150 Lichi Denier (C6)")
-    lichi_rate: float = Field(252.0, description="150 Lichi Rate (H6)")
+    mat2_name: str = Field("Material-2", description="Material 2 Name")
+    mat2_beam_tar: float = Field(140.0, description="Material 2 Beam Tar")
+    mat2_peak: float = Field(70.0, description="Material 2 Peak")
+    mat2_denier: float = Field(70.0, description="Material 2 Denier")
+    mat2_rate: float = Field(252.0, description="Material 2 Rate")
 
-    shampen_beam_tar: float = Field(280.0, description="Shampen Beam Tar (B9)")
-    shampen_denier: float = Field(52.0, description="Shampen Denier (C9)")
-    shampen_rate: float = Field(300.0, description="Shampen Rate (H9)")
+    mat3_name: str = Field("Material-3", description="Material 3 Name")
+    mat3_beam_tar: float = Field(280.0, description="Material 3 Beam Tar")
+    mat3_peak: float = Field(52.0, description="Material 3 Peak")
+    mat3_denier: float = Field(52.0, description="Material 3 Denier")
+    mat3_rate: float = Field(300.0, description="Material 3 Rate")
 
-    weft3_beam_tar: float = Field(155.0, description="Weft-3 Beam Tar (B13)")
-    weft3_denier: float = Field(0.0, description="Weft-3 Denier (C13)")
-    weft3_rate: float = Field(175.0, description="Weft-3 Rate (H13)")
+    mat4_name: str = Field("Material-4", description="Material 4 Name")
+    mat4_beam_tar: float = Field(155.0, description="Material 4 Beam Tar")
+    mat4_peak: float = Field(0.0, description="Material 4 Peak")
+    mat4_denier: float = Field(0.0, description="Material 4 Denier")
+    mat4_rate: float = Field(175.0, description="Material 4 Rate")
 
-    weft4_beam_tar: float = Field(155.0, description="Weft-4 Beam Tar (B15)")
-    weft4_denier: float = Field(0.0, description="Weft-4 Denier (C15)")
-    weft4_rate: float = Field(0.0, description="Weft-4 Rate (H15)")
+    mat5_name: str = Field("Material-5", description="Material 5 Name")
+    mat5_beam_tar: float = Field(155.0, description="Material 5 Beam Tar")
+    mat5_peak: float = Field(0.0, description="Material 5 Peak")
+    mat5_denier: float = Field(0.0, description="Material 5 Denier")
+    mat5_rate: float = Field(0.0, description="Material 5 Rate")
 
-    weft5_beam_tar: float = Field(155.0, description="Weft-5 Beam Tar (B17)")
-    weft5_denier: float = Field(0.0, description="Weft-5 Denier (C17)")
-    weft5_rate: float = Field(0.0, description="Weft-5 Rate (H17)")
+    mat6_name: str = Field("Material-6", description="Material 6 Name")
+    mat6_beam_tar: float = Field(155.0, description="Material 6 Beam Tar")
+    mat6_peak: float = Field(0.0, description="Material 6 Peak")
+    mat6_denier: float = Field(0.0, description="Material 6 Denier")
+    mat6_rate: float = Field(0.0, description="Material 6 Rate")
 
-    weft6_beam_tar: float = Field(155.0, description="Weft-6 Beam Tar (B19)")
-    weft6_denier: float = Field(0.0, description="Weft-6 Denier (C19)")
-    weft6_rate: float = Field(0.0, description="Weft-6 Rate (H19)")
+    mat7_name: str = Field("Material-7", description="Material 7 Name")
+    mat7_beam_tar: float = Field(155.0, description="Material 7 Beam Tar")
+    mat7_peak: float = Field(0.0, description="Material 7 Peak")
+    mat7_denier: float = Field(0.0, description="Material 7 Denier")
+    mat7_rate: float = Field(0.0, description="Material 7 Rate")
+
+    mat8_name: str = Field("Material-8", description="Material 8 Name")
+    mat8_beam_tar: float = Field(0.0, description="Material 8 Beam Tar")
+    mat8_peak: float = Field(0.0, description="Material 8 Peak")
+    mat8_denier: float = Field(0.0, description="Material 8 Denier")
+    mat8_rate: float = Field(0.0, description="Material 8 Rate")
+
+    mat9_name: str = Field("Material-9", description="Material 9 Name")
+    mat9_beam_tar: float = Field(0.0, description="Material 9 Beam Tar")
+    mat9_peak: float = Field(0.0, description="Material 9 Peak")
+    mat9_denier: float = Field(0.0, description="Material 9 Denier")
+    mat9_rate: float = Field(0.0, description="Material 9 Rate")
+
+    mat10_name: str = Field("Material-10", description="Material 10 Name")
+    mat10_beam_tar: float = Field(0.0, description="Material 10 Beam Tar")
+    mat10_peak: float = Field(0.0, description="Material 10 Peak")
+    mat10_denier: float = Field(0.0, description="Material 10 Denier")
+    mat10_rate: float = Field(0.0, description="Material 10 Rate")
 
     saree_cut: float = Field(6.6, description="Saree Cut (K26)")
     job_rate_k24: float = Field(0.25, description="Job Rate (K24)")
     job_rate_m8: float = Field(0.28, description="Job Rate (M8)")
     saree_cut_m7: float = Field(6.2, description="Saree Cut M7")
+    divisor: float = Field(9000000.0, description="Divisor for Ans calculation")
 
 
 class MaterialResult(BaseModel):
     """Calculated result for a single material."""
     material_name: str
     beam_tar: float
+    peak: float
     denier: float
     rate: float
     ans: float = Field(description="G column - Base calculation")
-    amt: float = Field(description="G next row - Ans × Rate")
-    yarn_weight: float = Field(description="I column - Ans/100 × Saree Cut")
-    yarn_price: float = Field(description="J column - Rate × Yarn Weight")
+    amt: float = Field(description="G next row - Ans * Rate")
+    yarn_weight: float = Field(description="I column - Ans/100 * Saree Cut")
+    yarn_price: float = Field(description="J column - Rate * Yarn Weight")
 
 
 class CalculationResponse(BaseModel):
@@ -152,20 +184,19 @@ class CalculationResponse(BaseModel):
     materials: List[MaterialResult]
 
     # Aggregation results
-    total_pick: float = Field(description="H26 - Sum of all deniers")
+    total_pick: float = Field(description="H26 - Sum of peak values (excluding Warp)")
     sum_amt: float = Field(description="I21 - Sum of all Amt values")
     j21: float = Field(description="J21 = I21/100")
-    j22: float = Field(description="J22 = H26 × K24 (Pick × Job Rate)")
+    j22: float = Field(description="J22 = H26 * K24 (Pick * Job Rate)")
     j23: float = Field(description="J23 = J21 + J22")
 
     # Final outputs
     total_job: float = Field(description="N9 - TOTAL JOB")
     total_job_alt: float = Field(description="L24 - TOTAL JOB (alternative)")
     total_amt_yarn: float = Field(description="M24 - TOTAL AMT YARN")
+    n6: float = Field(description="N6 - Top 3 yarn prices (Warp + next 2)")
     total_yarn_job: float = Field(description="N11 - TOTAL YARN + JOB")
-    cost: float = Field(description="K27 - FINAL COST = J23 × Saree Cut")
-    net_rate: float = Field(description="C28 - Net Rate with GST")
-    work_ratio: float = Field(description="B26 - Work Ratio")
+    cost: float = Field(description="K27 - FINAL COST = J23 * Saree Cut")
 
     # Metadata
     workflow_nodes_executed: List[str]
@@ -190,10 +221,8 @@ START → calculate_ans → calculate_amt → calculate_yarn_weight
 ```
 
 ### Materials Supported
-- **Warp** (3-param formula: B×C×D / 9M)
-- **150 Lichi** (4-param: B×C×D×E / 9M)
-- **Shampen** (4-param)
-- **Weft-3 through Weft-6** (4-param)
+- **Warp** (3-param formula: B×C×D / divisor)
+- **Materials 2 through 10** (4-param: B×C×D×E / divisor)
 
 ### Key Outputs
 - **TOTAL JOB** (N9)
@@ -239,6 +268,7 @@ def build_initial_state(
         mat_list.append(create_material(
             name=m.material_name,
             beam_tar=m.beam_tar,
+            peak=m.peak,
             denier=m.denier,
             rate=m.rate,
             has_e_multiplier=m.has_e_multiplier,
@@ -251,11 +281,7 @@ def build_initial_state(
         job_rate_m8=params.job_rate_m8,
         saree_cut_m7=params.saree_cut_m7,
         total_card=params.total_card,
-        basic_rate=params.basic_rate,
-        gst_percent=params.gst_percent,
-        pick=params.pick,
-        work=params.work,
-        cut=params.cut,
+        divisor=params.divisor,
         total_pick=0.0,
         sum_amt=0.0,
         j21=0.0,
@@ -268,9 +294,6 @@ def build_initial_state(
         total_job_l24=0.0,
         total_yarn_job=0.0,
         cost=0.0,
-        net_rate=0.0,
-        work_ratio=0.0,
-        total_card_calc=0.0,
     )
 
 
@@ -281,11 +304,12 @@ def format_response(result: dict, exec_time: float) -> CalculationResponse:
         material_results.append(MaterialResult(
             material_name=mat["material_name"],
             beam_tar=mat["beam_tar"],
+            peak=mat["peak"],
             denier=mat["denier"],
             rate=mat["rate"],
             ans=round(mat["ans"], 4),
             amt=round(mat["amt"], 4),
-            yarn_weight=round(mat["yarn_weight"], 6),
+            yarn_weight=round(mat["yarn_weight"],2),
             yarn_price=round(mat["yarn_price"], 4),
         ))
 
@@ -299,10 +323,9 @@ def format_response(result: dict, exec_time: float) -> CalculationResponse:
         total_job=round(result["total_job_n9"], 4),
         total_job_alt=round(result["total_job_l24"], 4),
         total_amt_yarn=round(result["total_amt_yarn"], 4),
+        n6=round(result["n6"], 4),
         total_yarn_job=round(result["total_yarn_job"], 4),
         cost=round(result["cost"], 4),
-        net_rate=round(result["net_rate"], 2),
-        work_ratio=round(result["work_ratio"], 4),
         workflow_nodes_executed=WORKFLOW_NODES,
         execution_time_ms=round(exec_time * 1000, 2),
     )
@@ -373,7 +396,7 @@ async def get_workflow():
                 "stage": 5,
                 "description": "Sum up all per-material values",
                 "formulas": {
-                    "H26": "Sum of all deniers (Total Pick)",
+                    "H26": "Sum of peak values (excluding Warp) (Total Pick)",
                     "I21": "Sum of all Amt values",
                     "J21": "I21 / 100",
                     "N6": "J3 + J6 + J9 (top 3 yarn prices)",
@@ -398,14 +421,11 @@ async def get_workflow():
             {
                 "name": "calculate_cost",
                 "stage": 7,
-                "description": "Calculate FINAL COST and supplementary values",
+                "description": "Calculate FINAL COST",
                 "formulas": {
                     "K27": "J23 × K26 (FINAL COST)",
-                    "C28": "(A28 × B28%) + A28 (Net Rate with GST)",
-                    "B26": "A24/C24 × B24 (Work Ratio)",
-                    "O9": "(O8 × M8) / 39.37",
                 },
-                "outputs": ["cost", "net_rate", "work_ratio", "total_card_calc"],
+                "outputs": ["cost"],
             },
         ],
     }
@@ -413,17 +433,20 @@ async def get_workflow():
 
 @app.get("/defaults", tags=["Calculator"])
 async def get_defaults():
-    """Get default values for all inputs (from Excel spreadsheet)."""
+    """Get default values for all inputs."""
     return {
         "global_params": GlobalParams().model_dump(),
         "materials": [
-            {"material_name": "Warp", "beam_tar": 110.0, "denier": 110.0, "rate": 325.0, "has_e_multiplier": False},
-            {"material_name": "150 Lichi", "beam_tar": 140.0, "denier": 70.0, "rate": 252.0, "has_e_multiplier": True},
-            {"material_name": "Shampen", "beam_tar": 280.0, "denier": 52.0, "rate": 300.0, "has_e_multiplier": True},
-            {"material_name": "Weft-3", "beam_tar": 155.0, "denier": 0.0, "rate": 175.0, "has_e_multiplier": True},
-            {"material_name": "Weft-4", "beam_tar": 155.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
-            {"material_name": "Weft-5", "beam_tar": 155.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
-            {"material_name": "Weft-6", "beam_tar": 155.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Warp", "beam_tar": 110.0, "peak": 110.0, "denier": 110.0, "rate": 325.0, "has_e_multiplier": False},
+            {"material_name": "Material-2", "beam_tar": 140.0, "peak": 70.0, "denier": 70.0, "rate": 252.0, "has_e_multiplier": True},
+            {"material_name": "Material-3", "beam_tar": 280.0, "peak": 52.0, "denier": 52.0, "rate": 300.0, "has_e_multiplier": True},
+            {"material_name": "Material-4", "beam_tar": 155.0, "peak": 0.0, "denier": 0.0, "rate": 175.0, "has_e_multiplier": True},
+            {"material_name": "Material-5", "beam_tar": 155.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-6", "beam_tar": 155.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-7", "beam_tar": 155.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-8", "beam_tar": 0.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-9", "beam_tar": 0.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-10", "beam_tar": 0.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
         ],
     }
 
@@ -433,7 +456,7 @@ async def calculate_full(request: CalculationRequest):
     """
     🧮 **Full Calculation** — Run the complete LangGraph costing pipeline.
 
-    Send 1-7 materials with their beam_tar, denier, and rate.
+    Send 1-10 materials with their beam_tar, peak, denier, and rate.
     Global parameters (saree_cut, job_rate, etc.) have defaults from the Excel file.
 
     **Pipeline:** START → Ans → Amt → Yarn Weight → Yarn Price → Aggregation → Job → Cost → END
@@ -456,22 +479,22 @@ async def calculate_full(request: CalculationRequest):
 @app.post("/calculate/quick", response_model=CalculationResponse, tags=["Calculator"])
 async def calculate_quick(request: QuickCalcRequest):
     """
-    ⚡ **Quick Calculation** — Flat input format for all 7 materials.
+    ⚡ **Quick Calculation** — Flat input format for all 10 materials.
 
-    All fields have defaults from the Excel spreadsheet.
-    Just override the values you want to change.
-
-    Example: Change only Warp denier → `{"warp_denier": 120}`
+    All fields have defaults. Just override the values you want to change.
     """
     try:
         materials = [
-            MaterialInput(material_name="Warp", beam_tar=request.warp_beam_tar, denier=request.warp_denier, rate=request.warp_rate, has_e_multiplier=False),
-            MaterialInput(material_name="150 Lichi", beam_tar=request.lichi_beam_tar, denier=request.lichi_denier, rate=request.lichi_rate, has_e_multiplier=True),
-            MaterialInput(material_name="Shampen", beam_tar=request.shampen_beam_tar, denier=request.shampen_denier, rate=request.shampen_rate, has_e_multiplier=True),
-            MaterialInput(material_name="Weft-3", beam_tar=request.weft3_beam_tar, denier=request.weft3_denier, rate=request.weft3_rate, has_e_multiplier=True),
-            MaterialInput(material_name="Weft-4", beam_tar=request.weft4_beam_tar, denier=request.weft4_denier, rate=request.weft4_rate, has_e_multiplier=True),
-            MaterialInput(material_name="Weft-5", beam_tar=request.weft5_beam_tar, denier=request.weft5_denier, rate=request.weft5_rate, has_e_multiplier=True),
-            MaterialInput(material_name="Weft-6", beam_tar=request.weft6_beam_tar, denier=request.weft6_denier, rate=request.weft6_rate, has_e_multiplier=True),
+            MaterialInput(material_name="Warp", beam_tar=request.warp_beam_tar, peak=request.warp_peak, denier=request.warp_denier, rate=request.warp_rate, has_e_multiplier=False),
+            MaterialInput(material_name=request.mat2_name, beam_tar=request.mat2_beam_tar, peak=request.mat2_peak, denier=request.mat2_denier, rate=request.mat2_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat3_name, beam_tar=request.mat3_beam_tar, peak=request.mat3_peak, denier=request.mat3_denier, rate=request.mat3_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat4_name, beam_tar=request.mat4_beam_tar, peak=request.mat4_peak, denier=request.mat4_denier, rate=request.mat4_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat5_name, beam_tar=request.mat5_beam_tar, peak=request.mat5_peak, denier=request.mat5_denier, rate=request.mat5_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat6_name, beam_tar=request.mat6_beam_tar, peak=request.mat6_peak, denier=request.mat6_denier, rate=request.mat6_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat7_name, beam_tar=request.mat7_beam_tar, peak=request.mat7_peak, denier=request.mat7_denier, rate=request.mat7_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat8_name, beam_tar=request.mat8_beam_tar, peak=request.mat8_peak, denier=request.mat8_denier, rate=request.mat8_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat9_name, beam_tar=request.mat9_beam_tar, peak=request.mat9_peak, denier=request.mat9_denier, rate=request.mat9_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat10_name, beam_tar=request.mat10_beam_tar, peak=request.mat10_peak, denier=request.mat10_denier, rate=request.mat10_rate, has_e_multiplier=True),
         ]
 
         params = GlobalParams(
@@ -479,6 +502,7 @@ async def calculate_quick(request: QuickCalcRequest):
             job_rate_k24=request.job_rate_k24,
             job_rate_m8=request.job_rate_m8,
             saree_cut_m7=request.saree_cut_m7,
+            divisor=request.divisor,
         )
 
         state = build_initial_state(materials, params)
@@ -505,3 +529,4 @@ if __name__ == "__main__":
     print("  Swagger docs: http://127.0.0.1:8000/docs")
     print("=" * 50)
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+
