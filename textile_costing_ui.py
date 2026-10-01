@@ -25,7 +25,7 @@ else:
 
 
 
-API_BASE_URL = os.environ.get("TEXTILE_API_URL", "http://127.0.0.1:8000").rstrip("/")
+API_BASE_URL = "http://127.0.0.1:8000"  # Update this if your API runs elsewhe
 READ_TIMEOUT = (3, 8)
 CALCULATE_TIMEOUT = (3, 30)
 
