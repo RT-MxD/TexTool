@@ -24,13 +24,41 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+def get_database_url():
+    """Get database URL from environment or Streamlit secrets."""
+    # 1. Try environment variable (Render, local .env)
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        return db_url
+        
+    # 2. Try Streamlit secrets (Streamlit Community Cloud)
+    try:
+        import streamlit as st
+        # Direct secret
+        if "DATABASE_URL" in st.secrets:
+            return st.secrets["DATABASE_URL"]
+        # connections.postgresql.url pattern
+        if "connections" in st.secrets and "postgresql" in st.secrets["connections"]:
+            return st.secrets["connections"]["postgresql"].get("url")
+    except ImportError:
+        # Streamlit not installed (e.g., pure backend environment)
+        pass
+    except FileNotFoundError:
+        # secrets.toml not found
+        pass
+    except Exception as e:
+        # Any other Streamlit related error
+        print(f"Warning: Could not read from Streamlit secrets: {e}")
+        
+    return None
+
 
 def get_connection():
     """Get a Postgres connection with dict_row for dict-like access."""
-    if not DATABASE_URL:
-        raise ValueError("DATABASE_URL environment variable is not set")
-    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    db_url = get_database_url()
+    if not db_url:
+        raise ValueError("DATABASE_URL environment variable or Streamlit secret is not set")
+    conn = psycopg.connect(db_url, row_factory=dict_row)
     return conn
 
 
