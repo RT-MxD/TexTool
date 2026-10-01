@@ -10,6 +10,10 @@ Endpoints:
   GET  /health             - Health check
   GET  /workflow           - Get workflow node descriptions
   GET  /                   - Interactive API documentation redirect
+  GET  /threads            - List saved calculation threads
+  GET  /threads/{id}       - Get a specific thread with inputs & results
+  DELETE /threads/{id}     - Delete a thread
+  DELETE /threads          - Delete all threads
 
 Run:
   uvicorn main:app --reload --port 8000
@@ -28,14 +32,16 @@ from cal import (
     CostingState,
 )
 
+from db import save_thread, list_threads, get_thread, delete_thread, delete_all_threads
+
 # ──────────────────────── Pydantic Models ────────────────────────
 
 class MaterialInput(BaseModel):
     """Input for a single material."""
     material_name: str = Field(..., description="Name of the material (e.g., 'Warp', 'Material-2')")
-    beam_tar: float = Field(..., description="Beam Tar value (Column B)")
+    denier: float = Field(..., description="Denier value (Column B)")
     peak: float = Field(..., description="Peak value (Column C)")
-    denier: float = Field(..., description="Denier value (Column D)")
+    panno: float = Field(..., description="Panno value (Column D)")
     rate: float = Field(..., description="Rate per unit (Column H)")
     has_e_multiplier: bool = Field(
         True,
@@ -46,9 +52,9 @@ class MaterialInput(BaseModel):
         json_schema_extra = {
             "example": {
                 "material_name": "Material-2",
-                "beam_tar":0.0,
+                "denier":0.0,
                 "peak": 0.0,
-                "denier": 0.0,
+                "panno": 0.0,
                 "rate": 0.0,
                 "has_e_multiplier": True,
             }
@@ -67,6 +73,7 @@ class GlobalParams(BaseModel):
 
 class CalculationRequest(BaseModel):
     """Full calculation request with materials and global params."""
+    design_no: str = Field("", description="Optional design number (saved as title)")
     materials: List[MaterialInput] = Field(
         ...,
         min_length=1,
@@ -82,9 +89,9 @@ class CalculationRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "materials": [
-                    {"material_name": "Warp", "beam_tar": 110.0, "peak": 110.0, "denier": 110.0, "rate": 325.0, "has_e_multiplier": False},
-                    {"material_name": "Material-2", "beam_tar": 140.0, "peak": 70.0, "denier": 70.0, "rate": 252.0, "has_e_multiplier": True},
-                    {"material_name": "Material-3", "beam_tar": 280.0, "peak": 52.0, "denier": 52.0, "rate": 300.0, "has_e_multiplier": True},
+                    {"material_name": "Warp", "denier": 110.0, "peak": 110.0, "panno": 110.0, "rate": 325.0, "has_e_multiplier": False},
+                    {"material_name": "Material-2", "denier": 140.0, "peak": 70.0, "panno": 70.0, "rate": 252.0, "has_e_multiplier": True},
+                    {"material_name": "Material-3", "denier": 280.0, "peak": 52.0, "panno": 52.0, "rate": 300.0, "has_e_multiplier": True},
                 ],
                 "global_params": {
                     "saree_cut": 6.6,
@@ -98,64 +105,64 @@ class CalculationRequest(BaseModel):
 
 
 class QuickCalcRequest(BaseModel):
-    """Simplified request — beam_tar, peak, denier, rate for 10 materials."""
-    warp_beam_tar: float = Field(110.0, description="Warp Beam Tar (B)")
+    """Simplified request — denier, peak, panno, rate for 10 materials."""
+    warp_beam_tar: float = Field(110.0, description="Warp Denier (B)")
     warp_peak: float = Field(110.0, description="Warp Peak (C)")
-    warp_denier: float = Field(110.0, description="Warp Denier (D)")
+    warp_denier: float = Field(110.0, description="Warp Panno (D)")
     warp_rate: float = Field(325.0, description="Warp Rate (H)")
 
     mat2_name: str = Field("Material-2", description="Material 2 Name")
-    mat2_beam_tar: float = Field(140.0, description="Material 2 Beam Tar")
+    mat2_beam_tar: float = Field(140.0, description="Material 2 Denier")
     mat2_peak: float = Field(70.0, description="Material 2 Peak")
-    mat2_denier: float = Field(70.0, description="Material 2 Denier")
+    mat2_denier: float = Field(70.0, description="Material 2 Panno")
     mat2_rate: float = Field(252.0, description="Material 2 Rate")
 
     mat3_name: str = Field("Material-3", description="Material 3 Name")
-    mat3_beam_tar: float = Field(280.0, description="Material 3 Beam Tar")
+    mat3_beam_tar: float = Field(280.0, description="Material 3 Denier")
     mat3_peak: float = Field(52.0, description="Material 3 Peak")
-    mat3_denier: float = Field(52.0, description="Material 3 Denier")
+    mat3_denier: float = Field(52.0, description="Material 3 Panno")
     mat3_rate: float = Field(300.0, description="Material 3 Rate")
 
     mat4_name: str = Field("Material-4", description="Material 4 Name")
-    mat4_beam_tar: float = Field(155.0, description="Material 4 Beam Tar")
+    mat4_beam_tar: float = Field(155.0, description="Material 4 Denier")
     mat4_peak: float = Field(0.0, description="Material 4 Peak")
-    mat4_denier: float = Field(0.0, description="Material 4 Denier")
+    mat4_denier: float = Field(0.0, description="Material 4 Panno")
     mat4_rate: float = Field(175.0, description="Material 4 Rate")
 
     mat5_name: str = Field("Material-5", description="Material 5 Name")
-    mat5_beam_tar: float = Field(155.0, description="Material 5 Beam Tar")
+    mat5_beam_tar: float = Field(155.0, description="Material 5 Denier")
     mat5_peak: float = Field(0.0, description="Material 5 Peak")
-    mat5_denier: float = Field(0.0, description="Material 5 Denier")
+    mat5_denier: float = Field(0.0, description="Material 5 Panno")
     mat5_rate: float = Field(0.0, description="Material 5 Rate")
 
     mat6_name: str = Field("Material-6", description="Material 6 Name")
-    mat6_beam_tar: float = Field(155.0, description="Material 6 Beam Tar")
+    mat6_beam_tar: float = Field(155.0, description="Material 6 Denier")
     mat6_peak: float = Field(0.0, description="Material 6 Peak")
-    mat6_denier: float = Field(0.0, description="Material 6 Denier")
+    mat6_denier: float = Field(0.0, description="Material 6 Panno")
     mat6_rate: float = Field(0.0, description="Material 6 Rate")
 
     mat7_name: str = Field("Material-7", description="Material 7 Name")
-    mat7_beam_tar: float = Field(155.0, description="Material 7 Beam Tar")
+    mat7_beam_tar: float = Field(155.0, description="Material 7 Denier")
     mat7_peak: float = Field(0.0, description="Material 7 Peak")
-    mat7_denier: float = Field(0.0, description="Material 7 Denier")
+    mat7_denier: float = Field(0.0, description="Material 7 Panno")
     mat7_rate: float = Field(0.0, description="Material 7 Rate")
 
     mat8_name: str = Field("Material-8", description="Material 8 Name")
-    mat8_beam_tar: float = Field(0.0, description="Material 8 Beam Tar")
+    mat8_beam_tar: float = Field(0.0, description="Material 8 Denier")
     mat8_peak: float = Field(0.0, description="Material 8 Peak")
-    mat8_denier: float = Field(0.0, description="Material 8 Denier")
+    mat8_denier: float = Field(0.0, description="Material 8 Panno")
     mat8_rate: float = Field(0.0, description="Material 8 Rate")
 
     mat9_name: str = Field("Material-9", description="Material 9 Name")
-    mat9_beam_tar: float = Field(0.0, description="Material 9 Beam Tar")
+    mat9_beam_tar: float = Field(0.0, description="Material 9 Denier")
     mat9_peak: float = Field(0.0, description="Material 9 Peak")
-    mat9_denier: float = Field(0.0, description="Material 9 Denier")
+    mat9_denier: float = Field(0.0, description="Material 9 Panno")
     mat9_rate: float = Field(0.0, description="Material 9 Rate")
 
     mat10_name: str = Field("Material-10", description="Material 10 Name")
-    mat10_beam_tar: float = Field(0.0, description="Material 10 Beam Tar")
+    mat10_beam_tar: float = Field(0.0, description="Material 10 Denier")
     mat10_peak: float = Field(0.0, description="Material 10 Peak")
-    mat10_denier: float = Field(0.0, description="Material 10 Denier")
+    mat10_denier: float = Field(0.0, description="Material 10 Panno")
     mat10_rate: float = Field(0.0, description="Material 10 Rate")
 
     saree_cut: float = Field(6.6, description="Saree Cut (K26)")
@@ -168,9 +175,9 @@ class QuickCalcRequest(BaseModel):
 class MaterialResult(BaseModel):
     """Calculated result for a single material."""
     material_name: str
-    beam_tar: float
-    peak: float
     denier: float
+    peak: float
+    panno: float
     rate: float
     ans: float = Field(description="G column - Base calculation")
     amt: float = Field(description="G next row - Ans * Rate")
@@ -194,13 +201,14 @@ class CalculationResponse(BaseModel):
     total_job: float = Field(description="N9 - TOTAL JOB")
     total_job_alt: float = Field(description="L24 - TOTAL JOB (alternative)")
     total_amt_yarn: float = Field(description="M24 - TOTAL AMT YARN")
-    n6: float = Field(description="N6 - Top 3 yarn prices (Warp + next 2)")
+    n6: float = Field(description="N6 - Top 3 Rates (Warp + next 2)")
     total_yarn_job: float = Field(description="N11 - TOTAL YARN + JOB")
     cost: float = Field(description="K27 - FINAL COST = J23 * Saree Cut")
 
     # Metadata
     workflow_nodes_executed: List[str]
     execution_time_ms: float
+    thread_id: Optional[str] = Field(None, description="Anonymous thread ID (auto-saved)")
 
 
 # ──────────────────────── FastAPI App ────────────────────────
@@ -267,9 +275,9 @@ def build_initial_state(
     for m in materials:
         mat_list.append(create_material(
             name=m.material_name,
-            beam_tar=m.beam_tar,
-            peak=m.peak,
             denier=m.denier,
+            peak=m.peak,
+            panno=m.panno,
             rate=m.rate,
             has_e_multiplier=m.has_e_multiplier,
         ))
@@ -303,9 +311,9 @@ def format_response(result: dict, exec_time: float) -> CalculationResponse:
     for mat in result["materials"]:
         material_results.append(MaterialResult(
             material_name=mat["material_name"],
-            beam_tar=mat["beam_tar"],
-            peak=mat["peak"],
             denier=mat["denier"],
+            peak=mat["peak"],
+            panno=mat["panno"],
             rate=mat["rate"],
             ans=round(mat["ans"], 4),
             amt=round(mat["amt"], 4),
@@ -364,7 +372,7 @@ async def get_workflow():
                 "description": "Calculate base 'Ans' for each material",
                 "formula_warp": "G = B × C × D / 9,000,000",
                 "formula_others": "G = B × C × D × E / 9,000,000",
-                "inputs": ["beam_tar (B)", "denier (C)", "multiplier_d (D=50)", "multiplier_e (E=100)"],
+                "inputs": ["denier (B)", "panno (C)", "multiplier_d (D=50)", "multiplier_e (E=100)"],
                 "outputs": ["ans (G column)"],
             },
             {
@@ -399,8 +407,8 @@ async def get_workflow():
                     "H26": "Sum of peak values (excluding Warp) (Total Pick)",
                     "I21": "Sum of all Amt values",
                     "J21": "I21 / 100",
-                    "N6": "J3 + J6 + J9 (top 3 yarn prices)",
-                    "M24": "Sum of all yarn prices (TOTAL AMT YARN)",
+                    "N6": "J3 + J6 + J9 (top 3 Rates)",
+                    "M24": "Sum of all Rates (TOTAL AMT YARN)",
                 },
                 "outputs": ["total_pick", "sum_amt", "j21", "n6", "total_amt_yarn"],
             },
@@ -437,16 +445,16 @@ async def get_defaults():
     return {
         "global_params": GlobalParams().model_dump(),
         "materials": [
-            {"material_name": "Warp", "beam_tar": 110.0, "peak": 110.0, "denier": 110.0, "rate": 325.0, "has_e_multiplier": False},
-            {"material_name": "Material-2", "beam_tar": 140.0, "peak": 70.0, "denier": 70.0, "rate": 252.0, "has_e_multiplier": True},
-            {"material_name": "Material-3", "beam_tar": 280.0, "peak": 52.0, "denier": 52.0, "rate": 300.0, "has_e_multiplier": True},
-            {"material_name": "Material-4", "beam_tar": 155.0, "peak": 0.0, "denier": 0.0, "rate": 175.0, "has_e_multiplier": True},
-            {"material_name": "Material-5", "beam_tar": 155.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
-            {"material_name": "Material-6", "beam_tar": 155.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
-            {"material_name": "Material-7", "beam_tar": 155.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
-            {"material_name": "Material-8", "beam_tar": 0.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
-            {"material_name": "Material-9", "beam_tar": 0.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
-            {"material_name": "Material-10", "beam_tar": 0.0, "peak": 0.0, "denier": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Warp", "denier": 110.0, "peak": 110.0, "panno": 110.0, "rate": 325.0, "has_e_multiplier": False},
+            {"material_name": "Material-2", "denier": 140.0, "peak": 70.0, "panno": 70.0, "rate": 252.0, "has_e_multiplier": True},
+            {"material_name": "Material-3", "denier": 280.0, "peak": 52.0, "panno": 52.0, "rate": 300.0, "has_e_multiplier": True},
+            {"material_name": "Material-4", "denier": 155.0, "peak": 0.0, "panno": 0.0, "rate": 175.0, "has_e_multiplier": True},
+            {"material_name": "Material-5", "denier": 155.0, "peak": 0.0, "panno": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-6", "denier": 155.0, "peak": 0.0, "panno": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-7", "denier": 155.0, "peak": 0.0, "panno": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-8", "denier": 0.0, "peak": 0.0, "panno": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-9", "denier": 0.0, "peak": 0.0, "panno": 0.0, "rate": 0.0, "has_e_multiplier": True},
+            {"material_name": "Material-10", "denier": 0.0, "peak": 0.0, "panno": 0.0, "rate": 0.0, "has_e_multiplier": True},
         ],
     }
 
@@ -456,8 +464,9 @@ async def calculate_full(request: CalculationRequest):
     """
     🧮 **Full Calculation** — Run the complete LangGraph costing pipeline.
 
-    Send 1-10 materials with their beam_tar, peak, denier, and rate.
+    Send 1-10 materials with their denier, peak, panno, and rate.
     Global parameters (saree_cut, job_rate, etc.) have defaults from the Excel file.
+    Every calculation is auto-saved as an anonymous thread.
 
     **Pipeline:** START → Ans → Amt → Yarn Weight → Yarn Price → Aggregation → Job → Cost → END
     """
@@ -468,7 +477,19 @@ async def calculate_full(request: CalculationRequest):
         result = costing_graph.invoke(state)
         exec_time = time.perf_counter() - start_time
 
-        return format_response(result, exec_time)
+        response = format_response(result, exec_time)
+
+        # Auto-save as anonymous thread
+        try:
+            materials_dicts = [m.model_dump() for m in request.materials]
+            global_params_dict = request.global_params.model_dump()
+            results_dict = response.model_dump()
+            thread_id = save_thread(materials_dicts, global_params_dict, results_dict, title=request.design_no)
+            response.thread_id = thread_id
+        except Exception:
+            pass  # Don't fail the calculation if saving fails
+
+        return response
 
     except ZeroDivisionError as e:
         raise HTTPException(status_code=400, detail=f"Division by zero in calculation: {str(e)}")
@@ -485,16 +506,16 @@ async def calculate_quick(request: QuickCalcRequest):
     """
     try:
         materials = [
-            MaterialInput(material_name="Warp", beam_tar=request.warp_beam_tar, peak=request.warp_peak, denier=request.warp_denier, rate=request.warp_rate, has_e_multiplier=False),
-            MaterialInput(material_name=request.mat2_name, beam_tar=request.mat2_beam_tar, peak=request.mat2_peak, denier=request.mat2_denier, rate=request.mat2_rate, has_e_multiplier=True),
-            MaterialInput(material_name=request.mat3_name, beam_tar=request.mat3_beam_tar, peak=request.mat3_peak, denier=request.mat3_denier, rate=request.mat3_rate, has_e_multiplier=True),
-            MaterialInput(material_name=request.mat4_name, beam_tar=request.mat4_beam_tar, peak=request.mat4_peak, denier=request.mat4_denier, rate=request.mat4_rate, has_e_multiplier=True),
-            MaterialInput(material_name=request.mat5_name, beam_tar=request.mat5_beam_tar, peak=request.mat5_peak, denier=request.mat5_denier, rate=request.mat5_rate, has_e_multiplier=True),
-            MaterialInput(material_name=request.mat6_name, beam_tar=request.mat6_beam_tar, peak=request.mat6_peak, denier=request.mat6_denier, rate=request.mat6_rate, has_e_multiplier=True),
-            MaterialInput(material_name=request.mat7_name, beam_tar=request.mat7_beam_tar, peak=request.mat7_peak, denier=request.mat7_denier, rate=request.mat7_rate, has_e_multiplier=True),
-            MaterialInput(material_name=request.mat8_name, beam_tar=request.mat8_beam_tar, peak=request.mat8_peak, denier=request.mat8_denier, rate=request.mat8_rate, has_e_multiplier=True),
-            MaterialInput(material_name=request.mat9_name, beam_tar=request.mat9_beam_tar, peak=request.mat9_peak, denier=request.mat9_denier, rate=request.mat9_rate, has_e_multiplier=True),
-            MaterialInput(material_name=request.mat10_name, beam_tar=request.mat10_beam_tar, peak=request.mat10_peak, denier=request.mat10_denier, rate=request.mat10_rate, has_e_multiplier=True),
+            MaterialInput(material_name="Warp", denier=request.warp_beam_tar, peak=request.warp_peak, panno=request.warp_denier, rate=request.warp_rate, has_e_multiplier=False),
+            MaterialInput(material_name=request.mat2_name, denier=request.mat2_beam_tar, peak=request.mat2_peak, panno=request.mat2_denier, rate=request.mat2_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat3_name, denier=request.mat3_beam_tar, peak=request.mat3_peak, panno=request.mat3_denier, rate=request.mat3_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat4_name, denier=request.mat4_beam_tar, peak=request.mat4_peak, panno=request.mat4_denier, rate=request.mat4_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat5_name, denier=request.mat5_beam_tar, peak=request.mat5_peak, panno=request.mat5_denier, rate=request.mat5_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat6_name, denier=request.mat6_beam_tar, peak=request.mat6_peak, panno=request.mat6_denier, rate=request.mat6_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat7_name, denier=request.mat7_beam_tar, peak=request.mat7_peak, panno=request.mat7_denier, rate=request.mat7_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat8_name, denier=request.mat8_beam_tar, peak=request.mat8_peak, panno=request.mat8_denier, rate=request.mat8_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat9_name, denier=request.mat9_beam_tar, peak=request.mat9_peak, panno=request.mat9_denier, rate=request.mat9_rate, has_e_multiplier=True),
+            MaterialInput(material_name=request.mat10_name, denier=request.mat10_beam_tar, peak=request.mat10_peak, panno=request.mat10_denier, rate=request.mat10_rate, has_e_multiplier=True),
         ]
 
         params = GlobalParams(
@@ -519,6 +540,40 @@ async def calculate_quick(request: QuickCalcRequest):
         raise HTTPException(status_code=500, detail=f"Calculation error: {str(e)}")
 
 
+# ──────────────────────── Thread Endpoints ────────────────────────
+
+@app.get("/threads", tags=["Threads"])
+async def api_list_threads(limit: int = 50):
+    """📋 List all saved calculation threads (newest first)."""
+    threads = list_threads(limit=limit)
+    return {"threads": threads, "count": len(threads)}
+
+
+@app.get("/threads/{thread_id}", tags=["Threads"])
+async def api_get_thread(thread_id: str):
+    """🔍 Get a specific thread with its inputs and results."""
+    thread = get_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail=f"Thread '{thread_id}' not found")
+    return thread
+
+
+@app.delete("/threads/{thread_id}", tags=["Threads"])
+async def api_delete_thread(thread_id: str):
+    """🗑️ Delete a specific thread."""
+    deleted = delete_thread(thread_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Thread '{thread_id}' not found")
+    return {"message": f"Thread '{thread_id}' deleted", "success": True}
+
+
+@app.delete("/threads", tags=["Threads"])
+async def api_delete_all_threads():
+    """🗑️ Delete ALL saved threads."""
+    count = delete_all_threads()
+    return {"message": f"Deleted {count} thread(s)", "count": count}
+
+
 # ──────────────────────── Run Server ────────────────────────
 
 if __name__ == "__main__":
@@ -529,4 +584,3 @@ if __name__ == "__main__":
     print("  Swagger docs: http://127.0.0.1:8000/docs")
     print("=" * 50)
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
-
