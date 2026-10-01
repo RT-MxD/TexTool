@@ -11,7 +11,7 @@ LangGraph Workflow Stages:
 """
 
 from typing import TypedDict, List, Dict, Any, Optional
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import StateGraph, START, END   
 import json
 
 
@@ -20,9 +20,9 @@ import json
 class MaterialData(TypedDict):
     """Represents a single material (Warp + 9 user-named materials)."""
     material_name: str
-    beam_tar: float       # Column B - Beam Tar (user input)
+    denier: float       # Column B - Denier (user input)
     peak: float           # Column C - Peak (user input)
-    denier: float         # Column D - Denier (user input)
+    panno: float         # Column D - Panno (user input)
     multiplier_e: float   # Column E - fixed value (100), Warp uses only D
     rate: float           # Column H - Rate (user input)
     has_e_multiplier: bool  # Warp uses 3-param formula, rest use 4-param
@@ -50,8 +50,8 @@ class CostingState(TypedDict):
     j21: float             # J21 = I21 / 100
     j22: float             # J22 = H26 * K24
     j23: float             # J23 = J21 + J22
-    total_amt_yarn: float  # M24 = Sum of all yarn prices
-    n6: float              # N6  = J3 + J6 + J9 (top 3 yarn prices)
+    total_amt_yarn: float  # M24 = Sum of all Rates
+    n6: float              # N6  = J3 + J6 + J9 (top 3 Rates)
     n8: float              # N8  = H26 * M8
     total_job_n9: float    # N9  = N8 * M7
     total_job_l24: float   # L24 = J22 * K26
@@ -77,13 +77,13 @@ def calculate_ans(state: CostingState) -> Dict[str, Any]:
         if mat["has_e_multiplier"]:
             # 4-parameter formula: B * C * D * E / divisor
             new_mat["ans"] = (
-                mat["beam_tar"] * mat["peak"] * 
-                mat["denier"] * mat["multiplier_e"]
+                mat["denier"] * mat["peak"] * 
+                mat["panno"] * mat["multiplier_e"]
             ) / divisor
         else:
             # 3-parameter formula (Warp only): B * C * D / divisor
             new_mat["ans"] = (
-                mat["beam_tar"] * mat["peak"] * mat["denier"]
+                mat["denier"] * mat["peak"] * mat["panno"]
             ) / divisor
         updated.append(new_mat)
 
@@ -149,8 +149,8 @@ def aggregate_totals(state: CostingState) -> Dict[str, Any]:
     H26 = Sum of peak values (excluding Warp) (Total Pick)
     I21 = Sum of all Amt values
     J21 = I21 / 100
-    N6  = J3 + J6 + J9 (top 3 materials' yarn prices)
-    M24 = Sum of all yarn prices (TOTAL AMT YARN)
+    N6  = J3 + J6 + J9 (top 3 materials' Rates)
+    M24 = Sum of all Rates (TOTAL AMT YARN)
     """
     materials = state.get("materials", [])
 
@@ -163,10 +163,10 @@ def aggregate_totals(state: CostingState) -> Dict[str, Any]:
     # J21 = I21 / 100
     j21 = sum_amt / 100
 
-    # N6: Sum of top 3 materials' yarn prices (Warp + Lichi + Shampen)
+    # N6: Sum of top 3 materials' Rates (Warp + Lichi + Shampen)
     n6 = sum(mat["yarn_price"] for mat in materials[:3])
 
-    # M24: Total Amt Yarn = sum of all yarn prices
+    # M24: Total Amt Yarn = sum of all Rates
     total_amt_yarn = sum(mat["yarn_price"] for mat in materials)
 
     return {
@@ -270,9 +270,9 @@ def build_costing_graph():
 
 def create_material(
     name: str,
-    beam_tar: float,
-    peak: float,
     denier: float,
+    peak: float,
+    panno: float,
     rate: float,
     multiplier_e: float = 100.0,
     has_e_multiplier: bool = True,
@@ -280,9 +280,9 @@ def create_material(
     """Factory function to create a MaterialData entry."""
     return MaterialData(
         material_name=name,
-        beam_tar=beam_tar,
-        peak=peak,
         denier=denier,
+        peak=peak,
+        panno=panno,
         multiplier_e=multiplier_e,
         rate=rate,
         has_e_multiplier=has_e_multiplier,
@@ -315,15 +315,15 @@ def get_user_inputs() -> CostingState:
 
     # Material 1: Warp (fixed name)
     print("\n\u2500\u2500 Warp (Fixed) \u2500\u2500")
-    warp_beam_tar = float(input("  Beam Tar (B) [default 110]: ") or "110")
+    warp_beam_tar = float(input("  Denier (B) [default 110]: ") or "110")
     warp_peak = float(input("  Peak (C) [default 110]: ") or "110")
-    warp_denier = float(input("  Denier (D) [default 110]: ") or "110")
+    warp_denier = float(input("  Panno (D) [default 110]: ") or "110")
     warp_rate = float(input("  Rate (H) [default 325]: ") or "325")
     materials.append(create_material(
         name="Warp",
-        beam_tar=warp_beam_tar,
+        denier=warp_beam_tar,
         peak=warp_peak,
-        denier=warp_denier,
+        panno=warp_denier,
         rate=warp_rate,
         has_e_multiplier=False,
     ))
@@ -332,16 +332,16 @@ def get_user_inputs() -> CostingState:
     for i in range(2, 11):
         print(f"\n\u2500\u2500 Material {i} of 10 \u2500\u2500")
         mat_name = input(f"  Material Name [default Material-{i}]: ") or f"Material-{i}"
-        beam_tar = float(input(f"  Beam Tar (B) [default 0]: ") or "0")
+        denier = float(input(f"  Denier (B) [default 0]: ") or "0")
         peak = float(input(f"  Peak (C) [default 0]: ") or "0")
-        denier = float(input(f"  Denier (D) [default 0]: ") or "0")
+        panno = float(input(f"  Panno (D) [default 0]: ") or "0")
         rate = float(input(f"  Rate (H) [default 0]: ") or "0")
 
         materials.append(create_material(
             name=mat_name,
-            beam_tar=beam_tar,
-            peak=peak,
             denier=denier,
+            peak=peak,
+            panno=panno,
             rate=rate,
             has_e_multiplier=True,
         ))
